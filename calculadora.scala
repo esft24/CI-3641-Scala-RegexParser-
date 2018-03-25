@@ -30,6 +30,7 @@ case class Div(left: Expr, right: Expr) extends Expr
 case class Pow(left: Expr, right: Expr) extends Expr
 case class Mod(left: Expr, right: Expr) extends Expr
 case class VarRef(nombre: String) extends Expr
+case class UnNeg(valor: Expr) extends Expr
 case class Asign(left: VarRef, right: Expr) extends Expr
 
 
@@ -44,7 +45,6 @@ sealed trait OperatorDMM
 case object Divider    extends OperatorDMM 
 case object Module     extends OperatorDMM
 case object Multiplier extends OperatorDMM
-
 
     // Notacion de la gramatica libre de contexo usada
     //    Uso         Notacion
@@ -66,7 +66,7 @@ case object Multiplier extends OperatorDMM
     // expr   = term ~ {"+"|"-" ~ term}
     // term   = power ~ ["%"|"/"|"*" ~ term]
     // power  = factor ~ ["^" ~ power]
-    // factor = decimalNumber | "(" expr ")"
+    // factor = decimalNumber | "(" expr ")" | name | - decimalNumber | + decimalNumber
     // asign = [name ~ "="] ~ expr
 
 
@@ -146,10 +146,17 @@ class Calculadora extends RegexParsers with PackratParsers {
         case f ~ Some(p) => Pow(f, p)
     }
 
-    // regla factor = decimalNumber | "(" expr ")"
+    // regla factor = decimalNumber | ["+" | "-" ~ factor] | "(" expr ")"
     lazy val factor: PackratParser[Expr] = decimalNumber^^{n => Numero(n.toDouble)} |
                                            name ^^ { n => VarRef(n) } |
                                            "(" ~> expr <~ ")" |
+                                           opt("-"^^^Minus | "+"^^^Plus) ~ factor^^{
+                                              case None ~ f    => f
+                                              case Some(o) ~ f => o match {
+                                                case Minus => UnNeg(f)
+                                                case Plus  => f
+                                              }
+                                            } |
                                            failure("Error, valor invalido")
 
     // regla asign = [name ~ "="] ~ expr
@@ -189,6 +196,7 @@ object Interprete {
             case Mod(l, r)  => apply(l) % apply(r)
             case Pow(b, e)  => Math.pow(apply(b),apply(e))
             case VarRef(n)  => memoriaValores.getOrElse(n, 0)
+            case UnNeg(n)   => - apply(n)
             case Asign(_,_) => 0
         }
     }
@@ -207,7 +215,7 @@ object CalculadoraREPL{
 
     def loop() {
         while (true) {
-            val exprSrc = StdIn.readLine("Calculame Este> ")
+            val exprSrc = StdIn.readLine("Calculadora> ")
             if (exprSrc == "") return
             import parser.{Success, NoSuccess}
             parser.parseAll(parser.asign, exprSrc) match {
